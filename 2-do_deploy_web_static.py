@@ -1,64 +1,48 @@
 #!/usr/bin/python3
-from fabric.api import env, run
-from fabric.operations import put
+""" a Fabric script (based on the file 1-pack_web_static.py) that distributes..
+    ..an archive to your web servers, using the function do_deploy: """
+
+
+from fabric.api import *
 from datetime import datetime
-import os
+from os.path import exists
 
-env.hosts = ['54.237.14.8', '100.26.232.63']
-env.user = 'ubuntu'
+
+env.hosts = ["54.237.14.8","100.26.232.63"]  # <IP web-01>, <IP web-02>
+env.user = 'school'
 env.key_filename = '~/.ssh/id_rsa'
+# ^ All remote commands must be executed on your both web servers
+# (using env.hosts = ['<IP web-01>', 'IP web-02'] variable in your script)
 
-def do_pack():
-    """Create a compressed archive of the web_static folder."""
-    try:
-        current_time = datetime.utcnow().strftime('%Y%m%d%H%M%S')
-        archive_path = f"versions/web_static_{current_time}.tgz"
-        local("mkdir -p versions")
-        local("tar -czvf {} web_static".format(archive_path))
-        return archive_path
-    except:
-        return None
 
 def do_deploy(archive_path):
-    """Distribute an archive to the web servers."""
-    if not os.path.exists(archive_path):
-        return False
+    """ distributes an archive to my web servers
+    """
+    if exists(archive_path) is False:
+        return False  # Returns False if the file at archive_path doesnt exist
+    filename = archive_path.split('/')[-1]
+    # so now filename is <web_static_2021041409349.tgz>
+    no_tgz = '/data/web_static/releases/' + "{}".format(filename.split('.')[0])
+    # curr = '/data/web_static/current'
+    tmp = "/tmp/" + filename
 
     try:
-        # Upload the archive
         put(archive_path, "/tmp/")
-        file_name = os.path.basename(archive_path)
-        file_name_without_extension = file_name.split('.')[0]
-        remote_path = "/data/web_static/releases/{}/".format(file_name_without_extension)
-
-        # Create necessary directories
-        run("sudo mkdir -p {}".format(remote_path))
-
-        # Unpack the archive
-        run("sudo tar -xzf /tmp/{} -C {}".format(file_name, remote_path))
-
-        # Delete the uploaded archive
-        run("sudo rm /tmp/{}".format(file_name))
-
-        # Move contents to the appropriate location
-        run("sudo mv {}web_static/* {}".format(remote_path, remote_path))
-
-        # Remove the symbolic link if it exists
-        run("sudo rm -rf /data/web_static/current")
-
-        # Create a new symbolic link
-        run("sudo ln -s {} /data/web_static/current".format(remote_path))
-
+        # ^ Upload the archive to the /tmp/ directory of the web server
+        run("mkdir -p {}/".format(no_tgz))
+        # Uncompress the archive to the folder /data/web_static/releases/
+        # <archive filename without extension> on the web server
+        run("tar -xzf {} -C {}/".format(tmp, no_tgz))
+        run("rm {}".format(tmp))
+        run("mv {}/web_static/* {}/".format(no_tgz, no_tgz))
+        run("rm -rf {}/web_static".format(no_tgz))
+        # ^ Delete the archive from the web server
+        run("rm -rf /data/web_static/current")
+        # Delete the symbolic link /data/web_static/current from the web server
+        run("ln -s {}/ /data/web_static/current".format(no_tgz))
+        # Create a new the symbolic link /data/web_static/current on the
+        # web server, linked to the new version of your code
+        # (/data/web_static/releases/<archive filename without extension>)
         return True
     except:
         return False
-
-def deploy():
-    archive_path = do_pack()
-    if archive_path is None:
-        return False
-    return do_deploy(archive_path)
-
-if __name__ == "__main__":
-    deploy()
-
